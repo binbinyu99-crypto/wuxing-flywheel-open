@@ -1,7 +1,12 @@
 __pycache__/
 *.pyc
-*.db
 .env
-*.egg-info/
+*.log
+.DS_Store
+*.db
+*.sqlite
+.vscode/
+.idea/
 dist/
 build/
+*.egg-info/
