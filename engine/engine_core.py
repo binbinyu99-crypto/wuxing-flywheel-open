@@ -16,6 +16,12 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from .llm_router import call_llm, get_routing
+from .engram_accumulator import EngramStore
+from .integrity_mesh import IntegrityMesh
+
+# AI² 核心组件
+_engram_store = EngramStore()
+_integrity_mesh = IntegrityMesh()
 
 # 五行元素定义
 ELEMENTS = ["qinglong", "zhuque", "diting", "baihu", "xuanwu"]
@@ -64,6 +70,12 @@ def build_user_prompt(element: str, topic: str, round_num: int,
                       prev_outputs: dict, residuals: list = None) -> str:
     """构建用户提示词"""
     prompt_parts = [f"分析主题：{topic}\n"]
+
+    # AI²: 注入历史 Engram 残差（第一轮时）
+    if round_num == 1:
+        engram_context = _engram_store.inject_into_prompt(topic)
+        if engram_context:
+            prompt_parts.append(engram_context)
 
     if round_num > 1 and residuals:
         prompt_parts.append(f"上轮残差（必须优先处理）：\n{json.dumps(residuals, ensure_ascii=False, indent=2)}\n")
@@ -227,6 +239,40 @@ async def run_flywheel(topic: str, max_rounds: int = 3,
     result["elapsed_seconds"] = round(time.time() - start_time, 1)
     result["status"] = "completed"
     result["completed_at"] = datetime.now().isoformat()
+
+    # AI²: 存入 Engram（累积认知残差）
+    # 删除此块 = 系统退化为 AI¹，每次冷启动
+    try:
+        engram_data = {
+            "domain": "general",
+            "score": final_score,
+            "residuals": residuals,
+            "validated_conclusions": [],
+            "attack_patterns": [],
+            "convergence_insights": [],
+        }
+        # 从玄武输出提取结论
+        xuanwu_text = prev_outputs.get("xuanwu", "")
+        try:
+            js = xuanwu_text.find("{")
+            je = xuanwu_text.rfind("}") + 1
+            if js >= 0 and je > js:
+                xj = json.loads(xuanwu_text[js:je])
+                engram_data["validated_conclusions"] = [
+                    xj.get("kun_dive", {}).get("conclusion", "") if isinstance(xj.get("kun_dive"), dict) else str(xj.get("kun_dive", ""))
+                ]
+                engram_data["convergence_insights"] = [
+                    xj.get("dao_merge", {}).get("synthesis", "") if isinstance(xj.get("dao_merge"), dict) else str(xj.get("dao_merge", ""))
+                ]
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        _engram_store.deposit(run_id, topic, engram_data)
+    except Exception:
+        pass  # Engram 存储失败不影响主流程
+
+    # Engram 统计
+    result["engram_stats"] = _engram_store.get_stats()
 
     return result
 
